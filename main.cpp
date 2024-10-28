@@ -29,21 +29,20 @@ enum ModelType
 	Dioblo
 };
 
-Model* Model_first = NULL;
-Model* Model_second = NULL;
-Model* Model_third = NULL;
-const int width = 800;
-const int height = 800;
+Model* Model_head = NULL;
+Model* Model_eye = NULL;
+Model* Model_body = NULL;
 
-Vec3i light(255, 155, 0);
-Vec3f light_dir(1, 0, 1);
+
+Vec3f light_dir(-0.5, 0.2, 1);
 Vec3f       eye(1, 1, 3);
 Vec3f    center(0, 0, 0);
 Vec3f        up(0, 1, 0);
 
 ShaderType shaderType = Test;
-ModelType modelType = Boggie;
-bool useTangent = true;
+ModelType modelType = Dioblo;
+bool bodyTangent = true;
+bool headTangent = true;
 Pipeline* shader = NULL;
 
 //最简单的卡通渲染,色阶少
@@ -98,8 +97,8 @@ struct GouraudShader : public Pipeline
 
 		vertex = Viewport * uniform_MVP * vertex;
 
-		Vec3f normal = normalize(Model_first->normal(iface, nthvert));
-		varying_ity[nthvert] = std::min(std::max(0.f, Model_first->normal(iface, nthvert) * light_dir), 255.0f);
+		Vec3f normal = normalize(Model_head->normal(iface, nthvert));
+		varying_ity[nthvert] = std::min(std::max(0.f, Model_head->normal(iface, nthvert) * light_dir), 255.0f);
 		return vertex;
 	}
 	
@@ -107,7 +106,7 @@ struct GouraudShader : public Pipeline
 	virtual bool FragmentShader(Model* model,Vec3f bar, TGAColor& color)
 	{
 		Vec2f uv = varying_uv * bar;
-		TGAColor c = Model_first->diffuse(uv);
+		TGAColor c = Model_head->diffuse(uv);
 		float intensity = varying_ity * bar;	
 		color = c * intensity;
 		return false;
@@ -160,19 +159,19 @@ struct PhongShader : public Pipeline
 	virtual bool FragmentShader(Model* model,Vec3f bar, TGAColor& color) override
 	{
 		Vec2f uv = varying_uv * bar;//插值出当前像素的颜色
-		Vec3f n = normalize(refill_vec<3>(uniform_MIT * refill_vec<4>(Model_first->normal(uv))));
+		Vec3f n = normalize(refill_vec<3>(uniform_MIT * refill_vec<4>(Model_head->normal(uv))));
 		Vec3f l = normalize( refill_vec<3>(uniform_M * refill_vec<4>(light_dir)));
 		
 		Vec3f r = normalize((n * (n * l * 2.f) - l)); 
 		
 		
 
-		float spec = pow(std::max(r.z, 0.0f), Model_first->specular(uv)); 
+		float spec = pow(std::max(r.z, 0.0f), Model_head->specular(uv)); 
 		float diff = std::max(0.f, n * l);
 
-		TGAColor c = Model_first->diffuse(uv);
+		TGAColor c = Model_head->diffuse(uv);
 		color = c;
-
+		
 		for (int i = 0; i < 3; i++) color[i] = std::min<float>(5 + c[i] * (diff + .6 * spec), 255);
 		
 		return false;
@@ -181,12 +180,13 @@ struct PhongShader : public Pipeline
 
 struct TestShader : public Pipeline 
 {
-	mat<2, 3, float> varying_uv;  // triangle uv coordinates, written by the vertex shader, read by the fragment shader
-	mat<4, 3, float> varying_tri; // triangle coordinates (clip coordinates), written by VS, read by FS
-	mat<3, 3, float> varying_nrm; // normal per vertex to be interpolated by FS
-	mat<3, 3, float> ndc_tri;     // triangle in normalized device coordinates
+	mat<2, 3, float> varying_uv;  // uv值
+	mat<4, 3, float> varying_tri; // 裁剪空间坐标
+	mat<3, 3, float> varying_nrm; 
+	mat<3, 3, float> ndc_tri;     // ndc坐标
 
-	virtual Vec4f VertexShader(Model* model,int iface, int nthvert) {
+	virtual Vec4f VertexShader(Model* model,int iface, int nthvert) 
+	{
 		varying_uv.set_col(nthvert, model->uv(iface, nthvert));
 		varying_nrm.set_col(nthvert, refill_vec<3>((Projection * ModelView).invert_transpose() * refill_vec<4>(model->normal(iface, nthvert), 0.f)));
 		Vec4f gl_Vertex = Projection * ModelView * refill_vec<4>(model->vert(iface, nthvert));
@@ -195,7 +195,8 @@ struct TestShader : public Pipeline
 		return gl_Vertex;
 	}
 
-	virtual bool FragmentShader(Model* model,Vec3f bar, TGAColor& color) {
+	virtual bool FragmentShader(Model* model,Vec3f bar, TGAColor& color)
+	{
 		Vec3f bn = normalize((varying_nrm * bar));
 		Vec2f uv = varying_uv * bar;
 
@@ -212,6 +213,7 @@ struct TestShader : public Pipeline
 		B.set_col(2, bn);
 		Vec3f n = normalize((B * model->normal(uv)));
 		float diff = std::max(0.f, n * light_dir);
+		
 		color = model->diffuse(uv) * diff;
 		return false;
 	}
@@ -219,24 +221,26 @@ struct TestShader : public Pipeline
 
 int main(int argc, char** argv)
 {
-	if (shaderType != Test)useTangent = false;
 	if (2 == argc) 
 	{
-		Model_first = new Model(argv[1],useTangent);
+		Model_head = new Model(argv[1],bodyTangent);
 	}
 	else 
 	{
 		if (modelType == African)
 		{
-			Model_first = new Model("obj/african_head/african_head.obj",useTangent);
-			Model_second = new Model("obj/african_head/african_head_eye_outer.obj", useTangent);
-			Model_third = new Model("obj/african_head/african_head_eye_inner.obj", useTangent);
+			Model_head = new Model("obj/african_head/african_head.obj",headTangent);
+			Model_eye = new Model("obj/african_head/african_head_eye_inner.obj", true);
 		}
 		if (modelType == Boggie)
 		{
-			Model_first = new Model("obj/boggie/body.obj", useTangent);
-			Model_second = new Model("obj/boggie/head.obj", useTangent);
-			Model_third = new Model("obj/boggie/eyes.obj", useTangent);
+			Model_body = new Model("obj/boggie/body.obj", bodyTangent);
+			Model_head = new Model("obj/boggie/head.obj", headTangent);
+			Model_eye = new Model("obj/boggie/eyes.obj", true);
+		}
+		if (modelType == Dioblo)
+		{
+			Model_head = new Model("obj/diablo3_pose/diablo3_pose.obj", bodyTangent);
 		}
 	}
 
@@ -281,38 +285,48 @@ int main(int argc, char** argv)
 	default:
 		break;
 	}
+	init(image);
 
-	//使用渲染管线
-	for (int i = 0; i < Model_first->nfaces(); i++)
+	if (Model_head)
 	{
-		Vec4f screen_coords[3];
-		for (int j = 0; j < 3; j++)
+		//使用渲染管线
+		for (int i = 0; i < Model_head->nfaces(); i++)
 		{
-			screen_coords[j] = shader->VertexShader(Model_first, i, j);
+			Vec4f screen_coords[3];
+			for (int j = 0; j < 3; j++)
+			{
+				screen_coords[j] = shader->VertexShader(Model_head, i, j);
+			}
+			!headTangent?triangle_EdgeEqualtion(Model_head,screen_coords, *shader, image, zbuffer):triangle(Model_head, testshader.varying_tri, *shader, image, fzbuffer);
 		}
-		!useTangent?triangle_EdgeEqualtion(Model_first,screen_coords, *shader, image, zbuffer):triangle(Model_first, testshader.varying_tri, *shader, image, fzbuffer);
 	}
 
-	//使用渲染管线
-	for (int i = 0; i < Model_second->nfaces(); i++)
+	if (Model_eye)
 	{
-		Vec4f screen_coords[3];
-		for (int j = 0; j < 3; j++)
+		//使用渲染管线
+		for (int i = 0; i < Model_eye->nfaces(); i++)
 		{
-			screen_coords[j] = shader->VertexShader(Model_second, i, j);
-
+			Vec4f screen_coords[3];
+			for (int j = 0; j < 3; j++)
+			{
+				screen_coords[j] = shader->VertexShader(Model_eye, i, j);
+			}
+			triangle(Model_eye, testshader.varying_tri, testshader, image, fzbuffer);
 		}
-		!useTangent?triangle_EdgeEqualtion(Model_second,screen_coords, *shader, image, zbuffer):triangle(Model_second, testshader.varying_tri, *shader, image, fzbuffer);
 	}
-	//使用渲染管线
-	for (int i = 0; i < Model_third->nfaces(); i++)
+
+	if (Model_body)
 	{
-		Vec4f screen_coords[3];
-		for (int j = 0; j < 3; j++)
+		//使用渲染管线
+		for (int i = 0; i < Model_body->nfaces(); i++)
 		{
-			screen_coords[j] = shader->VertexShader(Model_third, i, j);
+			Vec4f screen_coords[3];
+			for (int j = 0; j < 3; j++)
+			{
+				screen_coords[j] = shader->VertexShader(Model_body, i, j);
+			}
+			!bodyTangent?triangle_EdgeEqualtion(Model_body, screen_coords, *shader, image, zbuffer):triangle(Model_body, testshader.varying_tri, *shader, image, fzbuffer);
 		}
-		!useTangent?triangle_EdgeEqualtion(Model_third, screen_coords, *shader, image, zbuffer):triangle(Model_third, testshader.varying_tri, *shader, image, fzbuffer);
 	}
 
 
@@ -324,9 +338,9 @@ int main(int argc, char** argv)
 	zbuffer.write_tga_file("zbuffer.tga");
 
 
-	delete Model_first;
-	delete Model_second;
-	delete Model_third;
+	delete Model_head;
+	delete Model_eye;
+	delete Model_body;
 
 	system("output.tga");
 

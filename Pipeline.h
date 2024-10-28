@@ -9,6 +9,10 @@
 extern Matrix ModelView;
 extern Matrix Viewport;
 extern Matrix Projection;
+extern Vec3i light;
+extern TGAColor bgColor;
+extern const int width;
+extern const int height;
 
 /// <summary>
 /// 将视口矩阵传递给Viewport
@@ -51,5 +55,7 @@ void triangle_EdgeEqualtion(Model* model,Vec4f* pts, Pipeline& shaders, TGAImage
 
 
 void triangle(Model* model, mat<4, 3, float>& clipc, Pipeline& shader, TGAImage& image, float* zbuffer);
+
+void init(TGAImage& image);
 
 #endif // !_PIPELINE_H_
