@@ -8,11 +8,6 @@
 #include "Model.h"
 #include "Pipeline.h"
 
-void d()
-{
-	printf("gg\n");
-}
-
 enum ShaderType
 {
 	Toon,
@@ -33,14 +28,12 @@ Model* Model_head = NULL;
 Model* Model_eye = NULL;
 Model* Model_body = NULL;
 
-
-Vec3f light_dir(-0.5, 0.2, 1);
-Vec3f       eye(1, 1, 3);
-Vec3f    center(0, 0, 0);
-Vec3f        up(0, 1, 0);
+TGAImage image(width, height, TGAImage::RGB);
+TGAImage zbuffer(width, height, TGAImage::GRAYSCALE);
+float* fzbuffer = new float[width * height];
 
 ShaderType shaderType = Test;
-ModelType modelType = Dioblo;
+ModelType modelType = African;
 bool bodyTangent = true;
 bool headTangent = true;
 Pipeline* shader = NULL;
@@ -48,176 +41,182 @@ Pipeline* shader = NULL;
 //最简单的卡通渲染,色阶少
 struct ToonShader :public Pipeline
 {
-	Vec3f varying_ity;
+	ToonShader(Model* model,TGAImage* image,TGAImage* zbuffer) :Pipeline(model,image,zbuffer){}
 
 	virtual ~ToonShader(){}
 
-	virtual Vec4f VertexShader(Model* model,int iface, int nthvert)
+
+	virtual VertexOutput VertexShader(VertexInput vertexInput) override
 	{
-		Vec4f vertex = refill_vec<4>(model->vert(iface, nthvert));
-
-		vertex = Projection * ModelView * vertex;
-
-		varying_ity[nthvert] = model->normal(iface, nthvert) * light_dir;
-
-		vertex = Viewport * vertex;
-		return vertex;
+		VertexOutput vertexOutput;
+		for (int i = 0; i < 3; i++)
+		{
+			vertexOutput.world_coord[i] = vertexInput.vertex_model[i];//我们没有世界矩阵
+			vertexOutput.view_coord[i] = matrixData.modelView * vertexOutput.world_coord[i];
+			vertexOutput.projection_coord[i] = matrixData.projection * matrixData.modelView * vertexInput.vertex_model[i];
+			vertexOutput.vertex_normal[i] = normalize(vertexInput.vertex_normal[i]);
+			vertexOutput.screen_coord[i] = matrixData.viewPort * vertexOutput.projection_coord[i];
+		}
+		return vertexOutput;
 	}
 
-
-	virtual bool FragmentShader(Model* model,Vec3f bar,TGAColor& color) override
+	virtual TGAColor FragmentShader(VertexOutput vertexOutput) override
 	{
-		//计算该像素的亮度
-		float intensity = varying_ity * bar;
+
+		Vec3f vertex_light_intensity;
+		for (int i = 0; i < 3; i++)
+		{
+			vertex_light_intensity[i] = vertexOutput.vertex_normal[i] * applicationData.light_dir;
+		}
+		float pixel_intensity = vertex_light_intensity * factors;
+		if (pixel_intensity < .0f)TGAColor(0, 0, 0, 0);
+
 		
-		if (intensity > .85) intensity = 1;
-		else if (intensity > .60) intensity = .80;
-		else if (intensity > .45) intensity = .60;
-		else if (intensity > .30) intensity = .45;
-		else if (intensity > .15) intensity = .30;
+		if (pixel_intensity > 0.85f) pixel_intensity = 1.0f;
+		else if (pixel_intensity > 0.60f) pixel_intensity = 0.80f;
+		else if (pixel_intensity > 0.45f) pixel_intensity = 0.60f;
+		else if (pixel_intensity > 0.30f) pixel_intensity = 0.45f;
+		else if (pixel_intensity > 0.15f) pixel_intensity = 0.30f;
+		else return TGAColor(0,0,0,0);
 
-		color = TGAColor(light.x, light.y, light.z) * intensity;
+		TGAColor color = TGAColor(applicationData.light.x, applicationData.light.y, applicationData.light.z) * pixel_intensity;
 
-		return false;
+
+		return color;
 	}
 
 };
 
-struct GouraudShader : public Pipeline
+//以某一个顶点的法向量作为整个三角面的法向量
+struct FlatShader:public Pipeline
 {
-	Vec3f varying_ity;
-	mat<2, 3, float> varying_uv;
+	FlatShader(Model* model, TGAImage* image, TGAImage* zbuffer) :Pipeline(model, image, zbuffer) {}
+	virtual ~FlatShader(){}
 
-	virtual Vec4f VertexShader(Model* model, int iface, int nthvert)
+	virtual VertexOutput VertexShader(VertexInput vertexInput) override
 	{
-		Vec4f vertex = refill_vec<4>(model->vert(iface, nthvert));
-		varying_uv.set_col(nthvert, model->uv(iface, nthvert));
-
-		mat<4, 4, float> uniform_MVP = Projection * ModelView;
-
-		vertex = Viewport * uniform_MVP * vertex;
-
-		Vec3f normal = normalize(Model_head->normal(iface, nthvert));
-		varying_ity[nthvert] = std::min(std::max(0.f, Model_head->normal(iface, nthvert) * light_dir), 255.0f);
-		return vertex;
+		VertexOutput vertexOutput;
+		for (int i = 0; i < 3; i++)
+		{
+			vertexOutput.world_coord[i] = vertexInput.vertex_model[i];//我们没有世界矩阵
+			vertexOutput.view_coord[i] = matrixData.modelView * vertexOutput.world_coord[i];
+			vertexOutput.projection_coord[i] = matrixData.projection * matrixData.modelView * vertexInput.vertex_model[i];
+			vertexOutput.vertex_normal[i] = normalize(vertexInput.vertex_normal[i]);
+			vertexOutput.screen_coord[i] = matrixData.viewPort * vertexOutput.projection_coord[i];
+		}
+		return vertexOutput;
 	}
-	
 
-	virtual bool FragmentShader(Model* model,Vec3f bar, TGAColor& color)
+	virtual TGAColor FragmentShader(VertexOutput vertexOutput) override
 	{
-		Vec2f uv = varying_uv * bar;
-		TGAColor c = Model_head->diffuse(uv);
-		float intensity = varying_ity * bar;	
-		color = c * intensity;
-		return false;
+		VertexOutput vertex = vertexOutput;
+
+		Vec3f normal = normalize(cross(refill_vec<3>(vertex.world_coord[1] - vertex.world_coord[0]), refill_vec<3>(vertex.world_coord[2] - vertex.world_coord[0])));
+		float tri_intensity = normal * applicationData.light_dir;
+
+		TGAColor color = TGAColor(applicationData.light.x, applicationData.light.y, applicationData.light.z) * tri_intensity;
+
+		return color;
 	}
 };
 
-struct FlatShader : public Pipeline 
+//逐顶点计算像素的颜色
+struct GouraudShader :public Pipeline
 {
-	//三个点的信息
-	mat<3, 3, float> varying_tri;
+	GouraudShader(Model* model, TGAImage* image, TGAImage* zbuffer) :Pipeline(model, image, zbuffer) {}
+	virtual ~GouraudShader() {}
 
-	virtual ~FlatShader() {}
-
-	virtual Vec4f VertexShader(Model* model, int iface, int nthvert) override
+	virtual VertexOutput VertexShader(VertexInput vertexInput) override
 	{
-		Vec4f gl_Vertex = refill_vec<4>(model->vert(iface, nthvert));
-		gl_Vertex = Projection * ModelView * gl_Vertex;
-
-		varying_tri.set_col(nthvert, refill_vec<3>(gl_Vertex / gl_Vertex[3]));
-		gl_Vertex = Viewport * gl_Vertex;
-		return gl_Vertex;
+		VertexOutput vertexOutput;
+		for (int i = 0; i < 3; i++)
+		{
+			vertexOutput.world_coord[i] = vertexInput.vertex_model[i];//我们没有世界矩阵
+			vertexOutput.view_coord[i] = matrixData.modelView * vertexOutput.world_coord[i];
+			vertexOutput.projection_coord[i] = matrixData.projection * matrixData.modelView * vertexInput.vertex_model[i];
+			vertexOutput.vertex_normal[i] = normalize(vertexInput.vertex_normal[i]);
+			vertexOutput.screen_coord[i] = matrixData.viewPort * vertexOutput.projection_coord[i];
+		
+			vertexOutput.vertex_uvtexcrood[i] = vertexInput.vertex_uvtexcrood[i];
+		}
+		return vertexOutput;
 	}
 
-	virtual bool FragmentShader(Model* model,Vec3f bar, TGAColor& color) override
+	virtual TGAColor FragmentShader(VertexOutput vertexOutput) override
 	{
-
-		Vec3f n = normalize(cross(varying_tri.get_col(1) - varying_tri.get_col(0), varying_tri.get_col(2) - varying_tri.get_col(0)));
-		float intensity = n * light_dir;
-		color = TGAColor(light.x, light.y, light.z) * intensity;
-		return false;
+		VertexOutput vertex = vertexOutput;
+		
+		Vec3f intensity;//计算三个顶点的光照强度,以便利用插值计算当前像素光照强度
+		Vec2f uvtexcrood=Vec2f(0,0);//同上
+		for (int i = 0; i < 3; i++)
+		{
+			intensity[i] = std::min(255.0f, std::max(0.0f, vertex.vertex_normal[i] * applicationData.light_dir));
+			uvtexcrood = uvtexcrood + vertex.vertex_uvtexcrood[i] * factors[i];
+		}
+		
+		float final_intensity = intensity * factors;
+		TGAColor color = tex2D(model->diffusemap_,uvtexcrood) * final_intensity;
+		//TGAColor color = model->diffuse(final_uvtexcrood) * final_intensity;
+		return color;
 	}
 };
 
-struct PhongShader : public Pipeline 
-{
-	mat<2, 3, float> varying_uv;  
-	mat<4, 4, float> uniform_M = Projection * ModelView;
-	mat<4, 4, float> uniform_MIT = ModelView.invert_transpose();
-	
 
-	virtual Vec4f VertexShader(Model* model, int iface, int nthvert) override
+struct PhongShader:public Pipeline
+{
+	PhongShader(Model* model, TGAImage* image, TGAImage* zbuffer) :Pipeline(model, image, zbuffer) {}
+	virtual ~PhongShader() {}
+
+	virtual VertexOutput VertexShader(VertexInput vertexInput)override
 	{
-		varying_uv.set_col(nthvert, model->uv(iface, nthvert));
-		Vec4f vertex = refill_vec<4>(model->vert(iface, nthvert));
-		
-		Vec4f end = Viewport * Projection * ModelView * vertex;
-		return end;
+		VertexOutput vertexOutput;
+		for (int i = 0; i < 3; i++)
+		{
+			vertexOutput.world_coord[i] = vertexInput.vertex_model[i];//我们没有世界矩阵
+			vertexOutput.view_coord[i] = matrixData.modelView * vertexOutput.world_coord[i];
+			vertexOutput.projection_coord[i] = matrixData.projection * matrixData.modelView * vertexInput.vertex_model[i];
+			vertexOutput.vertex_normal[i] = normalize(vertexInput.vertex_normal[i]);
+			vertexOutput.screen_coord[i] = matrixData.viewPort * vertexOutput.projection_coord[i];
+
+			vertexOutput.vertex_uvtexcrood[i] = vertexInput.vertex_uvtexcrood[i];
+			vertexOutput.vertex_specular[i] = model->specular(vertexInput.vertex_uvtexcrood[i]);
+		}
+		return vertexOutput;
 	}
 
-	virtual bool FragmentShader(Model* model,Vec3f bar, TGAColor& color) override
+	virtual TGAColor FragmentShader(VertexOutput vertexOutput)override
 	{
-		Vec2f uv = varying_uv * bar;//插值出当前像素的颜色
-		Vec3f n = normalize(refill_vec<3>(uniform_MIT * refill_vec<4>(Model_head->normal(uv))));
-		Vec3f l = normalize( refill_vec<3>(uniform_M * refill_vec<4>(light_dir)));
-		
-		Vec3f r = normalize((n * (n * l * 2.f) - l)); 
-		
-		
+		VertexOutput vertex = vertexOutput;
 
-		float spec = pow(std::max(r.z, 0.0f), Model_head->specular(uv)); 
+		Matrix matrix_MIT = matrixData.modelView.invert_transpose();
+		Matrix matrix_M = matrixData.projection * matrixData.modelView;
+
+		Vec3f world_normal[3];
+		Vec2f uvtexcrood = Vec2f(0, 0);
+
+		Vec3f reflection[3];
+
+		for (int i = 0; i < 3; i++)
+		{
+			uvtexcrood = uvtexcrood + vertex.vertex_uvtexcrood[i] * factors[i];
+		}
+
+		Vec3f n = normalize(refill_vec<3>(matrix_MIT * refill_vec<4>(model->normal(uvtexcrood))));
+		Vec3f l = normalize(refill_vec<3>(matrix_M * refill_vec<4>(applicationData.light_dir)));
+		Vec3f r = normalize((n * (n * l * 2.0f)) - l);
+
+		float spec = pow(std::max(r.z, 0.0f), model->specular(uvtexcrood));
 		float diff = std::max(0.f, n * l);
 
-		TGAColor c = Model_head->diffuse(uv);
-		color = c;
-		
-		for (int i = 0; i < 3; i++) color[i] = std::min<float>(5 + c[i] * (diff + .6 * spec), 255);
-		
-		return false;
+		TGAColor c = tex2D(model->diffusemap_,uvtexcrood);
+		TGAColor color;
+
+		for (int i = 0; i < 3; i++) color[i] = std::min<float>(5.0f + c[i] * (diff + 0.6f * spec), 255.0f);
+
+		return color;
 	}
 };
 
-struct TestShader : public Pipeline 
-{
-	mat<2, 3, float> varying_uv;  // uv值
-	mat<4, 3, float> varying_tri; // 裁剪空间坐标
-	mat<3, 3, float> varying_nrm; 
-	mat<3, 3, float> ndc_tri;     // ndc坐标
-
-	virtual Vec4f VertexShader(Model* model,int iface, int nthvert) 
-	{
-		varying_uv.set_col(nthvert, model->uv(iface, nthvert));
-		varying_nrm.set_col(nthvert, refill_vec<3>((Projection * ModelView).invert_transpose() * refill_vec<4>(model->normal(iface, nthvert), 0.f)));
-		Vec4f gl_Vertex = Projection * ModelView * refill_vec<4>(model->vert(iface, nthvert));
-		varying_tri.set_col(nthvert, gl_Vertex);
-		ndc_tri.set_col(nthvert, refill_vec<3>(gl_Vertex / gl_Vertex[3]));
-		return gl_Vertex;
-	}
-
-	virtual bool FragmentShader(Model* model,Vec3f bar, TGAColor& color)
-	{
-		Vec3f bn = normalize((varying_nrm * bar));
-		Vec2f uv = varying_uv * bar;
-
-		mat<3, 3, float> A;
-		A[0] = ndc_tri.get_col(1) - ndc_tri.get_col(0);
-		A[1] = ndc_tri.get_col(2) - ndc_tri.get_col(0);
-		A[2] = bn;
-		mat<3, 3, float> AI = A.invert();
-		Vec3f i = AI * Vec3f(varying_uv[0][1] - varying_uv[0][0], varying_uv[0][2] - varying_uv[0][0], 0);
-		Vec3f j = AI * Vec3f(varying_uv[1][1] - varying_uv[1][0], varying_uv[1][2] - varying_uv[1][0], 0);
-		mat<3, 3, float> B;
-		B.set_col(0, normalize(i));
-		B.set_col(1, normalize(j));
-		B.set_col(2, bn);
-		Vec3f n = normalize((B * model->normal(uv)));
-		float diff = std::max(0.f, n * light_dir);
-		
-		color = model->diffuse(uv) * diff;
-		return false;
-	}
-};
 
 int main(int argc, char** argv)
 {
@@ -244,92 +243,16 @@ int main(int argc, char** argv)
 		}
 	}
 
-	//准备矩阵
-	lookat(eye, center, up);
-	projection(-1.0f / length(eye - center));
-	viewport(width / 8, height / 8, width * 3 / 4, height * 3 / 4);
-	light_dir = normalize(light_dir);
-
-	ToonShader toonshader;
-	GouraudShader gouraudshader;
-	FlatShader flatshader;
-	PhongShader phongshader;
-	TestShader testshader;
-
-	TGAImage image(width, height, TGAImage::RGB);
-	TGAImage zbuffer(width, height, TGAImage::GRAYSCALE);
-	float* fzbuffer = new float[width * height];
 
 	for (int i = width * height; i--; fzbuffer[i] = -std::numeric_limits<float>::max());
 
 
+	ToonShader* toonShader=new ToonShader(Model_head,&image,&zbuffer);
+	FlatShader* flatShader = new FlatShader(Model_head, &image, &zbuffer);
+	GouraudShader* gouraudShader = new GouraudShader(Model_head, &image, &zbuffer);
+	PhongShader* phongShader = new PhongShader(Model_head, &image, &zbuffer);
 
-
-	switch (shaderType)
-	{
-	case Toon:
-		shader = &toonshader;
-		break;
-	case Phong:
-		shader = &phongshader;
-		break;
-	case Flat:
-		shader = &flatshader;
-		break;
-	case Gouraud:
-		shader = &gouraudshader;
-		break;
-	case Test:
-		shader = &testshader;
-		break;
-	default:
-		break;
-	}
-	init(image);
-
-	if (Model_head)
-	{
-		//使用渲染管线
-		for (int i = 0; i < Model_head->nfaces(); i++)
-		{
-			Vec4f screen_coords[3];
-			for (int j = 0; j < 3; j++)
-			{
-				screen_coords[j] = shader->VertexShader(Model_head, i, j);
-			}
-			!headTangent?triangle_EdgeEqualtion(Model_head,screen_coords, *shader, image, zbuffer):triangle(Model_head, testshader.varying_tri, *shader, image, fzbuffer);
-		}
-	}
-
-	if (Model_eye)
-	{
-		//使用渲染管线
-		for (int i = 0; i < Model_eye->nfaces(); i++)
-		{
-			Vec4f screen_coords[3];
-			for (int j = 0; j < 3; j++)
-			{
-				screen_coords[j] = shader->VertexShader(Model_eye, i, j);
-			}
-			triangle(Model_eye, testshader.varying_tri, testshader, image, fzbuffer);
-		}
-	}
-
-	if (Model_body)
-	{
-		//使用渲染管线
-		for (int i = 0; i < Model_body->nfaces(); i++)
-		{
-			Vec4f screen_coords[3];
-			for (int j = 0; j < 3; j++)
-			{
-				screen_coords[j] = shader->VertexShader(Model_body, i, j);
-			}
-			!bodyTangent?triangle_EdgeEqualtion(Model_body, screen_coords, *shader, image, zbuffer):triangle(Model_body, testshader.varying_tri, *shader, image, fzbuffer);
-		}
-	}
-
-
+	phongShader->run();
 
 
 	image.flip_vertically();
@@ -337,12 +260,15 @@ int main(int argc, char** argv)
 	image.write_tga_file("output.tga");
 	zbuffer.write_tga_file("zbuffer.tga");
 
+	system("output.tga");
 
 	delete Model_head;
 	delete Model_eye;
 	delete Model_body;
-
-	system("output.tga");
+	delete toonShader;
+	delete flatShader;
+	delete gouraudShader;
+	delete phongShader;
 
 	return 0;
 }

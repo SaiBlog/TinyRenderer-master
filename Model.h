@@ -22,14 +22,14 @@ private:
 	//存储当前顶点的纹理坐标
 	std::vector<Vec2f>uv_;
 
+	void load_texture(std::string filename, const char* suffix, TGAImage& img);
+
+public:
+
 	//存储贴图信息
 	TGAImage diffusemap_;
 	TGAImage normalmap_;
 	TGAImage specularmap_;
-
-	void load_texture(std::string filename, const char* suffix, TGAImage& img);
-
-public:
 
 	Model(const char* filename,bool useTangent);
 	~Model();
@@ -52,8 +52,9 @@ public:
 	//根据面索引的第几个点来获取顶点数据
 	Vec3f vert(int iface, int nthvert);
 
-	//根据面索引和顶点索引获取UV值
+	//根据面索引和顶点索引获取UV坐标
 	Vec2f uv(int iface, int nthvert);
+
 
 	//根据UV坐标读取纹理图信息
 	TGAColor diffuse(Vec2f uvf);
