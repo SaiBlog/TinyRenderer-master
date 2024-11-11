@@ -3,7 +3,9 @@
 #include"Pipeline.h"
 
 
-Pipeline::~Pipeline(){}
+Pipeline::~Pipeline()
+{
+}
 
 
 Pipeline::Pipeline(Model* model, TGAImage* image, TGAImage* zbuffer)
@@ -13,70 +15,30 @@ Pipeline::Pipeline(Model* model, TGAImage* image, TGAImage* zbuffer)
 	this->zbuffer = zbuffer;
 }
 
-void Pipeline::run(RazerMode razermode)
+void Pipeline::run(RazerMode mode)
 {
 	InitApplicationStage();
 
 	InitBackground(*image, applicationData.bgColor);
 
-	if (razermode == GPU)
-	{
-		//这里和真正引擎shader不一样的是我们的光栅化是以三个点(一个三角形)为单位，所以shader处理的不是单个点，而是三个点
-		for (int i = 0; i < model->nfaces(); i++)
-		{
-			for (int j = 0; j < 3; j++)
-			{
-				vertexInput.vertex_model[j] = refill_vec<4>(model->vert(i, j));//读出每一个顶点局部坐标
-				vertexInput.vertex_normal[j] = model->normal(i, j);
-				vertexInput.vertex_uvtexcrood[j] = model->uv(i, j);
-				vertexInput.vertex_specular[j] = model->specular(vertexInput.vertex_uvtexcrood[j]);
-			}
-			vertexOutput = VertexShader(vertexInput);
-		
-			Rasterize_EdgeEqualtion(vertexOutput);
+	VertexInput* vi_array = new VertexInput[model->nfaces() * 3];
+	VertexOutput* vo_array = new VertexOutput[model->nfaces() * 3];
 
-		}
-	}
-	else if (razermode == CPU)
-	{
-		for (int i = 0; i < model->nfaces(); i++)
-		{
-			for (int j = 0; j < 3; j++)
-			{
-				vertexInput.vertex_model[j] = refill_vec<4>(model->vert(i, j));//读出每一个顶点局部坐标
-				vertexInput.vertex_normal[j] = model->normal(i, j);
-				vertexInput.vertex_uvtexcrood[j] = model->uv(i, j);
-				vertexInput.vertex_specular[j] = model->specular(vertexInput.vertex_uvtexcrood[j]);
-			}
-			vertexOutput = VertexShader(vertexInput);
-		}
-		Rasterize_EdgeWalking(vertexOutput);
 
-	}
-	else if (razermode == WIREFRAME)
-	{
-		//这里和真正引擎shader不一样的是我们的光栅化是以三个点(一个三角形)为单位，所以shader处理的不是单个点，而是三个点
-		for (int i = 0; i < model->nfaces(); i++)
-		{
-			for (int j = 0; j < 3; j++)
-			{
-				vertexInput.vertex_model[j] = refill_vec<4>(model->vert(i, j));//读出每一个顶点局部坐标
-				vertexInput.vertex_normal[j] = model->normal(i, j);
-				vertexInput.vertex_uvtexcrood[j] = model->uv(i, j);
-				vertexInput.vertex_specular[j] = model->specular(vertexInput.vertex_uvtexcrood[j]);
-			}
-			vertexOutput = VertexShader(vertexInput);
-			Draw_wireframe(vertexOutput,applicationData.wfColor);
-		}
-	}
+	VertexAssemblyStage(vi_array);
+	VertexShaderStage(vi_array,vo_array);
+	RasterizeStage(vo_array,mode);
+
+	delete[] vi_array;
+	delete[] vo_array;
 }
 
 void Pipeline::InitApplicationStage()
 {
 	applicationData.wfColor = TGAColor(0, 0, 0);
-	applicationData.light_dir = Vec3f(1, 1, 1);
+	applicationData.light_dir = Vec3f(0, 1, 1);
 	applicationData.bgColor = TGAColor(127, 127, 127);
-	applicationData.eye = Vec3f(-1, 1, 3);
+	applicationData.eye = Vec3f(1, 0.5, 1.5);
 	applicationData.center = Vec3f(0, 0, 0);
 	applicationData.light = Vec3i(255, 155, 0);
 	matrixData.proj = -1.0f / length(applicationData.eye - applicationData.center);//获取投影系数
@@ -85,95 +47,117 @@ void Pipeline::InitApplicationStage()
 	matrixData.projection = Get_Projection(matrixData.proj);
 	matrixData.viewPort = Get_Viewport(width / 8, height / 8, width * 3 / 4, height * 3 / 4);
 
-
+	
 }
 
-TGAColor Pipeline::tex2D(TGAImage& image,Vec2f uvf)
+void Pipeline::VertexAssemblyStage(VertexInput*& p)
 {
-	Vec2i uv(uvf[0] * image.get_width(), uvf[1] * image.get_height());//映射纹理值
-	return image.get(uv[0], uv[1]);
+	for (int i = 0; i < model->nfaces(); i++)
+	{
+		for (int j = 0; j < 3; j++)
+		{
+			p[i * 3 + j].vertex_model = refill_vec<4>(model->vert(i, j));
+			p[i * 3 + j].vertex_normal = model->normal(i, j);
+			p[i * 3 + j].vertex_uvtexcrood = model->uv(i, j);
+			p[i * 3 + j].vertex_specular = model->specular(p[i * 3 + j].vertex_uvtexcrood);
+		}
+	}
 }
 
-void Pipeline::Rasterize_EdgeWalking(VertexOutput vertexOuput)
+void Pipeline::VertexShaderStage(VertexInput* p,VertexOutput*& po)
 {
-	Vec2f bboxmin(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
-	Vec2f bboxmax(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
-
-	Vec4f* pts = vertexOutput.screen_coord;
-
-	//求AABB包围盒
-	for (int i = 0; i < 3; i++)
+	for (int i = 0; i < model->nfaces() * 3; i++)
 	{
-		for (int j = 0; j < 2; j++)
-		{
-			bboxmin[j] = std::min(bboxmin[j], pts[i][j] / pts[i][3]);
-			bboxmax[j] = std::max(bboxmax[j], pts[i][j] / pts[i][3]);
-
-		}
+		po[i] = VertexShader(p[i]);
 	}
-
-	Vec2i P;
-
-	for (P.x = bboxmin.x; P.x <= bboxmax.x; P.x++)
-	{
-		for (P.y = bboxmin.y; P.y <= bboxmax.y; P.y++)
-		{
-
-
-
-			TGAColor color = FragmentShader(vertexOuput);
-		}
-	}
-
 }
 
-void Pipeline::Rasterize_EdgeEqualtion(VertexOutput vertexOutput)
+void Pipeline::RasterizeStage(VertexOutput* p,RazerMode mode)
 {
-	Vec2f bboxmin(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
-	Vec2f bboxmax(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
-
-	Vec4f* pts = vertexOutput.screen_coord;
-
-	//求AABB包围盒
-	for (int i = 0; i < 3; i++)
+	if(mode==WIREFRAME)
 	{
-		for (int j = 0; j < 2; j++)
+		for (int i = 0; i < model->nfaces(); i++)
 		{
-			bboxmin[j] = std::min(bboxmin[j], pts[i][j] / pts[i][3]);
-			bboxmax[j] = std::max(bboxmax[j], pts[i][j] / pts[i][3]);
-
+			Vec4f pts[3];
+			for (int j = 0; j < 3; j++)
+			{
+				pts[j] = p[i * 3 + j].screen_coord;
+			}
+			Draw_wireframe(pts, applicationData.wfColor);
 		}
 	}
-
-	Vec2i P;
-	for (P.x = bboxmin.x; P.x <= bboxmax.x; P.x++)
+	else if (mode == GPU)
 	{
-		for (P.y = bboxmin.y; P.y <= bboxmax.y; P.y++)
+		for (int iface = 0; iface < model->nfaces(); iface++)
 		{
-			//求出当前顶点的质心坐标(u,v,1)
-			factors = barycentric(refill_vec<2>(pts[0] / pts[0][3]), refill_vec<2>(pts[1] / pts[1][3]), refill_vec<2>(pts[2] / pts[2][3]), refill_vec<2>(P));
+			VertexOutput pts[3];
+			int ivert1 = iface * 3 + 0;
+			int ivert2 = iface * 3 + 1;
+			int ivert3 = iface * 3 + 2;
+			pts[0] = p[ivert1];
+			pts[1] = p[ivert2];
+			pts[2] = p[ivert3];
+			Vec2f bboxmin(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
+			Vec2f bboxmax(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
 
-			
+			for (int i = 0; i < 3; i++)
+			{
+				for (int j = 0; j < 2; j++)
+				{
+					bboxmin[j] = std::min(bboxmin[j], pts[i].screen_coord[j] / pts[i].screen_coord[3]);
+					bboxmax[j] = std::max(bboxmax[j], pts[i].screen_coord[j] / pts[i].screen_coord[3]);
+				}
+			}
 
-			//求出该点的深度值
-			float P_z = (pts[0][2] / pts[0][3]) * factors.x + (pts[0][2] / pts[1][3]) * factors.y + (pts[0][2] / pts[2][3]) * factors.z;
+			Vec2i P;
+			for (P.x = bboxmin.x; P.x <= bboxmax.x; P.x++)
+			{
+				for (P.y = bboxmin.y; P.y <= bboxmax.y; P.y++)
+				{
+					factors = barycentric(refill_vec<2>(pts[0].screen_coord / pts[0].screen_coord[3]), refill_vec<2>(pts[1].screen_coord / pts[1].screen_coord[3]), refill_vec<2>(pts[2].screen_coord / pts[2].screen_coord[3]), refill_vec<2>(P));
 
-			//深度值clamp到0-255
-			int frag_depth = std::max(0, std::min(255, int(P_z + 0.5f)));
+					float pz = (pts[0].screen_coord[2] / pts[0].screen_coord[3]) * factors.x + (pts[1].screen_coord[2] / pts[1].screen_coord[3]) * factors.y + (pts[2].screen_coord[2] / pts[2].screen_coord[3]) * factors.z;
+					int p_depth = std::max(0, std::min(255, int(pz + 0.5f)));
 
-			//不处理退化三角形的像素或者深度值比当前值高的像素,以及不在三角形中的像素
-			if (factors.x < 0 || factors.y < 0 || factors.z<0 || zbuffer->get(P.x, P.y)[0]>frag_depth)continue;
-			
+					//不处理退化三角形的像素或者深度值比当前值高的像素,以及不在三角形中的像素
+					if (factors.x < 0 || factors.y < 0 || factors.z<0 || zbuffer->get(P.x, P.y)[0]>p_depth)continue;
+
+					Matrix m_normal;
+					vec<4, float>homo_col_normal;
+					for (int i = 0; i < 4; i++)homo_col_normal[i] = 0.0f;
+					m_normal.set_col(0, refill_vec<4>(pts[0].vertex_normal, 0.0f));
+					m_normal.set_col(1, refill_vec<4>(pts[1].vertex_normal, 0.0f));
+					m_normal.set_col(2, refill_vec<4>(pts[2].vertex_normal, 0.0f));
+					m_normal.set_col(3, homo_col_normal);
+
+					Matrix m_uv;
+					vec<4, float>homo_col_uv;
+					for (int i = 0; i < 4; i++)homo_col_uv[i] = 0.0f;
+					m_uv.set_col(0, refill_vec<4>(pts[0].uvtexcrood, 0.0f));
+					m_uv.set_col(1, refill_vec<4>(pts[1].uvtexcrood, 0.0f));
+					m_uv.set_col(2, refill_vec<4>(pts[2].uvtexcrood, 0.0f));
+					m_uv.set_col(3, homo_col_uv);
 
 
-			TGAColor color = FragmentShader(vertexOutput);
+					VertexOutput vo;
+					vo.vertex_normal = normalize(refill_vec<3>(m_normal * refill_vec<4>(Vec3f(factors))));
+					vo.uvtexcrood = refill_vec<2>(m_uv * refill_vec<4>(Vec3f(factors)));
 
-			//深度值的灰度图
-			zbuffer->set(P.x, P.y, TGAColor(frag_depth));
 
-			//最终的效果
-			image->set(P.x, P.y, color);
-		}
+					TGAColor color = FragmentShader(vo);
+
+					//深度值的灰度图
+					zbuffer->set(P.x, P.y, TGAColor(p_depth));
+					//最终的效果
+					image->set(P.x, P.y, color);
+
+				}
+			}
+		}	
+	}
+	else if (mode == CPU)
+	{
+
 	}
 }
 
@@ -211,6 +195,12 @@ Matrix Get_ModelView(Vec3f eye, Vec3f center, Vec3f up)
 		Inv_Transformation[2][i] = z[i];
 	}
 	return Inv_Transformation;
+}
+
+TGAColor Pipeline::tex2D(TGAImage& image, Vec2f uvf)
+{
+	Vec2i uv(uvf[0] * image.get_width(), uvf[1] * image.get_height());//映射纹理值
+	return image.get(uv[0], uv[1]);
 }
 
 //质心坐标
@@ -281,9 +271,8 @@ void Pipeline::Bresemham_drawline(Vec2i a, Vec2i b, TGAImage& image, TGAColor co
 	}
 }
 
-void Pipeline::Draw_wireframe(VertexOutput vertexOutput,TGAColor color)
+void Pipeline::Draw_wireframe(Vec4f* pts,TGAColor color)
 {
-	Vec4f* pts = vertexOutput.screen_coord;
 	Bresemham_drawline(refill_vec<2>(pts[0] / pts[0][3]), refill_vec<2>(pts[1] / pts[1][3]), *image, color);
 	Bresemham_drawline(refill_vec<2>(pts[1] / pts[1][3]), refill_vec<2>(pts[2] / pts[2][3]), *image, color);
 	Bresemham_drawline(refill_vec<2>(pts[2] / pts[2][3]), refill_vec<2>(pts[0] / pts[0][3]), *image, color);

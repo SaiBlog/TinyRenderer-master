@@ -33,11 +33,11 @@ Matrix Get_ModelView(Vec3f eye, Vec3f center, Vec3f up);
 
 struct VertexInput
 {
-	Vec4f vertex_model[3];//局部坐标
-	Vec3f vertex_normal[3];//法向量
+	Vec4f vertex_model;//局部坐标
+	Vec3f vertex_normal;//法向量
 
-	Vec2f vertex_uvtexcrood[3];
-	float vertex_specular[3];
+	Vec2f vertex_uvtexcrood;
+	float vertex_specular;
 };
 
 struct MatrixData
@@ -51,10 +51,10 @@ struct MatrixData
 
 struct ApplicationData
 {
-	Vec3i light;
-	Vec3f light_dir;
-	Vec3f       eye;
-	Vec3f    center;
+	Vec3i      light;
+	Vec3f  light_dir;
+	Vec3f        eye;
+	Vec3f     center;
 	TGAColor bgColor;
 	TGAColor wfColor;
 };
@@ -66,17 +66,18 @@ enum RazerMode
 	WIREFRAME
 };
 
+//为了简单期间顶点着色器将使用三角形的三个顶点，而不是单个顶点
 struct VertexOutput
 {
-	Vec4f world_coord[3];
-	Vec4f view_coord[3];
-	Vec4f projection_coord[3];
-	Vec4f screen_coord[3];
+	Vec4f world_coord;
+	Vec4f view_coord;
+	Vec4f projection_coord;
+	Vec4f screen_coord;
 
-	Vec3f vertex_normal[3];
+	Vec3f vertex_normal;
 
-	Vec2f vertex_uvtexcrood[3];
-	float vertex_specular[3];
+	Vec2f uvtexcrood;
+	float vertex_specular;
 };
 
 struct Pipeline
@@ -90,33 +91,39 @@ struct Pipeline
 	// 如果你感兴趣的话可以自己继续封装成游戏引擎的样式
 	//********************************************************************************************************
 
-	virtual VertexOutput VertexShader(VertexInput vertexInput) { return VertexOutput(); };
-	virtual TGAColor FragmentShader(VertexOutput vertexOutput) { return TGAColor(); };
+	virtual VertexOutput VertexShader(VertexInput vi) { return VertexOutput(); };
+	virtual TGAColor FragmentShader(VertexOutput vo) { return TGAColor(); };
 
 	//执行渲染管线
-	void run(RazerMode razermode=GPU);
+	void run(RazerMode mode);
+
+	//顶点装配
+	void VertexAssemblyStage(VertexInput*& p);
 
 	//应用程序阶段
 	void InitApplicationStage();
 
-	//和unity对其一下
-	TGAColor tex2D(TGAImage& image,Vec2f uvf);
+	//顶点着色阶段
+	void VertexShaderStage(VertexInput* p,VertexOutput*& po);
 
 	//光栅化阶段
-	void Rasterize_EdgeEqualtion(VertexOutput vertexOutput);
-	void Rasterize_EdgeWalking(VertexOutput vertexOutput);
+	void RasterizeStage(VertexOutput* p,RazerMode mode);
+
 
 	//wireframe模式
 	void Bresemham_drawline(Vec2i a, Vec2i b, TGAImage& image, TGAColor color);
-	void Draw_wireframe(VertexOutput vertexOutput, TGAColor color);
+	void Draw_wireframe(Vec4f* pts, TGAColor color);
+
+
+	//和unity对其一下
+	TGAColor tex2D(TGAImage& image, Vec2f uvf);
 
 
 	Model* model;
 	TGAImage* image;
 	TGAImage* zbuffer;
 
-	VertexInput vertexInput;
-	VertexOutput vertexOutput;
+	RazerMode razermode;
 	MatrixData matrixData;
 	ApplicationData applicationData;
 
@@ -125,8 +132,6 @@ struct Pipeline
 
 
 Vec3f barycentric(Vec2f a, Vec2f b, Vec2f c, Vec2f p);
-
-void triangle(Model* model, mat<4, 3, float>& clipc, Pipeline& shader, TGAImage& image, float* zbuffer);
 
 void InitBackground(TGAImage& image,const TGAColor& bgColor);
 
