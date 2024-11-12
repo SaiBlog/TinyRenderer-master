@@ -36,9 +36,9 @@ void Pipeline::run(RazerMode mode)
 void Pipeline::InitApplicationStage()
 {
 	applicationData.wfColor = TGAColor(0, 0, 0);
-	applicationData.light_dir = Vec3f(0, 1, 1);
+	applicationData.light_dir = normalize(Vec3f(1, 1, 1));
 	applicationData.bgColor = TGAColor(127, 127, 127);
-	applicationData.eye = Vec3f(1, 0.5, 1.5);
+	applicationData.eye = Vec3f(1, 1, 3);
 	applicationData.center = Vec3f(0, 0, 0);
 	applicationData.light = Vec3i(255, 155, 0);
 	matrixData.proj = -1.0f / length(applicationData.eye - applicationData.center);//获取投影系数

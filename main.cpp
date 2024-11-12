@@ -45,7 +45,6 @@ TGAImage image(width, height, TGAImage::RGB);
 TGAImage zbuffer(width, height, TGAImage::GRAYSCALE);
 float* fzbuffer = new float[width * height];
 
-ShaderType shaderType = Test;
 ModelType modelType = African;
 bool bodyTangent = true;
 bool headTangent = false;
