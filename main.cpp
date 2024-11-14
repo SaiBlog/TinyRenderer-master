@@ -55,6 +55,29 @@ struct WireframeShader :public Pipeline
 
 	WireframeShader(Model* model,TGAImage* image,TGAImage* zbuffer ):Pipeline(model, image, zbuffer) {}
 
+	virtual void VertexAssemblyStage(VertexInput*& p) override
+	{
+		v_numbers = model->nfaces() * 6;
+		vi_array = new VertexInput[v_numbers];
+		vo_array = new VertexOutput[v_numbers];
+		for (int i = 0; i < model->nfaces(); i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				p[i * 3 + j].vertex_idx = i * 3 + j;
+				p[i * 3 + j].vertex_model = resize_vec<4>(model->vert(i, j));
+				p[i * 3 + j].vertex_normal = model->normal(i, j);
+			}
+		}
+		for (int i = model->nfaces() * 3; i < v_numbers; i++)
+		{
+			int dis = model->nfaces() * 3;
+			p[i].vertex_idx = i;
+			p[i].vertex_model = p[i - dis].vertex_model + resize_vec<4>(p[i - dis].vertex_normal * 0.1f, 0.0f);
+			p[i].vertex_normal = p[i - dis].vertex_normal;
+		}
+	}
+
 	virtual VertexOutput VertexShader(VertexInput vi) override
 	{
 		VertexOutput vo;
@@ -65,11 +88,49 @@ struct WireframeShader :public Pipeline
 
 		return vo;
 	}
+
+	virtual void DrawPrimitive(VertexOutput* p) override
+	{
+		for (int i = 0; i < model->nfaces(); i++)
+		{
+			Vec4f pts[3];
+			for (int j = 0; j < 3; j++)
+			{
+				pts[j] = p[i * 3 + j].screen_coord;
+			}
+			Draw_wireframe(pts, applicationData.wfColor);
+		}
+		int dis = model->nfaces() * 3;
+		for (int i = dis; i < v_numbers; i++)
+		{
+			Vec2i a = resize_vec<2>(p[i].screen_coord / p[i].screen_coord[3]);
+			Vec2i b = resize_vec<2>(p[i - dis].screen_coord / p[i - dis].screen_coord[3]);
+			Bresemham_drawline(a, b, *image, applicationData.wfColor);
+		}
+	}
 };
 
 struct ToonShader :public Pipeline
 {
 	ToonShader(Model* model,TGAImage* image,TGAImage* zbuffer):Pipeline(model,image,zbuffer){}
+
+	virtual void VertexAssemblyStage(VertexInput*& p) override
+	{
+		v_numbers = 3 * model->nfaces();
+		vi_array = new VertexInput[v_numbers];
+		vo_array = new VertexOutput[v_numbers];
+		for (int i = 0; i < model->nfaces(); i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				p[i * 3 + j].vertex_idx = i * 3 + j;
+				p[i * 3 + j].vertex_model = resize_vec<4>(model->vert(i, j));
+				p[i * 3 + j].vertex_normal = model->normal(i, j);
+				p[i * 3 + j].vertex_uvtexcrood = model->uv(i, j);
+				p[i * 3 + j].vertex_specular = model->specular(p[i * 3 + j].vertex_uvtexcrood);
+			}
+		}
+	}
 
 	virtual VertexOutput VertexShader(VertexInput vi) override
 	{
@@ -102,6 +163,7 @@ struct ToonShader :public Pipeline
 	}
 };
 
+
 int main(int argc, char** argv)
 {
 	if (2 == argc) 
@@ -132,7 +194,8 @@ int main(int argc, char** argv)
 	ToonShader* toonShader = new ToonShader(Model_head, &image, &zbuffer);
 
 
-	toonShader->run(GPU);
+	wf->run(WIREFRAME);
+	//toonShader->run(GPU);
 
 
 	image.flip_vertically();

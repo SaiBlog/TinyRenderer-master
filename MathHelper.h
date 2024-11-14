@@ -314,7 +314,7 @@ inline vec<N, T> normalize(const vec<N, T>& a)
 
 //ÖØĞÂÌî³äÈİÆ÷
 template<size_t N1, size_t N2, typename T>
-vec<N1, T> refill_vec(const vec<N2, T>& v, T fill = 1) 
+vec<N1, T> resize_vec(const vec<N2, T>& v, T fill = 1) 
 {
 	vec<N1, T> ret;
 

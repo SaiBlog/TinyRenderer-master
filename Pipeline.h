@@ -33,6 +33,7 @@ Matrix Get_ModelView(Vec3f eye, Vec3f center, Vec3f up);
 
 struct VertexInput
 {
+	size_t vertex_idx;
 	Vec4f vertex_model;//局部坐标
 	Vec3f vertex_normal;//法向量
 
@@ -69,12 +70,14 @@ enum RazerMode
 //为了简单期间顶点着色器将使用三角形的三个顶点，而不是单个顶点
 struct VertexOutput
 {
+	size_t vertex_idx;
 	Vec4f world_coord;
 	Vec4f view_coord;
 	Vec4f projection_coord;
 	Vec4f screen_coord;
 
 	Vec3f vertex_normal;
+	Vec3f face_normal;
 
 	Vec2f uvtexcrood;
 	float vertex_specular;
@@ -93,12 +96,13 @@ struct Pipeline
 
 	virtual VertexOutput VertexShader(VertexInput vi) { return VertexOutput(); };
 	virtual TGAColor FragmentShader(VertexOutput vo) { return TGAColor(); };
+	//顶点装配
+	virtual void VertexAssemblyStage(VertexInput*& p) { return; }
+	virtual void DrawPrimitive(VertexOutput* p) { return; }
 
 	//执行渲染管线
 	void run(RazerMode mode);
 
-	//顶点装配
-	void VertexAssemblyStage(VertexInput*& p);
 
 	//应用程序阶段
 	void InitApplicationStage();
@@ -117,15 +121,21 @@ struct Pipeline
 
 	//和unity对其一下
 	TGAColor tex2D(TGAImage& image, Vec2f uvf);
+	Vec3f GetFaceNormal(VertexOutput vo);
 
 
 	Model* model;
 	TGAImage* image;
 	TGAImage* zbuffer;
 
+	VertexInput* vi_array;
+	VertexOutput* vo_array;
+
 	RazerMode razermode;
 	MatrixData matrixData;
 	ApplicationData applicationData;
+
+	size_t v_numbers;
 
 	Vec3f factors;//edge_qualtion
 };

@@ -21,12 +21,10 @@ void Pipeline::run(RazerMode mode)
 
 	InitBackground(*image, applicationData.bgColor);
 
-	VertexInput* vi_array = new VertexInput[model->nfaces() * 3];
-	VertexOutput* vo_array = new VertexOutput[model->nfaces() * 3];
-
 
 	VertexAssemblyStage(vi_array);
 	VertexShaderStage(vi_array,vo_array);
+
 	RasterizeStage(vo_array,mode);
 
 	delete[] vi_array;
@@ -50,23 +48,9 @@ void Pipeline::InitApplicationStage()
 	
 }
 
-void Pipeline::VertexAssemblyStage(VertexInput*& p)
-{
-	for (int i = 0; i < model->nfaces(); i++)
-	{
-		for (int j = 0; j < 3; j++)
-		{
-			p[i * 3 + j].vertex_model = refill_vec<4>(model->vert(i, j));
-			p[i * 3 + j].vertex_normal = model->normal(i, j);
-			p[i * 3 + j].vertex_uvtexcrood = model->uv(i, j);
-			p[i * 3 + j].vertex_specular = model->specular(p[i * 3 + j].vertex_uvtexcrood);
-		}
-	}
-}
-
 void Pipeline::VertexShaderStage(VertexInput* p,VertexOutput*& po)
 {
-	for (int i = 0; i < model->nfaces() * 3; i++)
+	for (int i = 0; i < v_numbers; i++)
 	{
 		po[i] = VertexShader(p[i]);
 	}
@@ -76,15 +60,7 @@ void Pipeline::RasterizeStage(VertexOutput* p,RazerMode mode)
 {
 	if(mode==WIREFRAME)
 	{
-		for (int i = 0; i < model->nfaces(); i++)
-		{
-			Vec4f pts[3];
-			for (int j = 0; j < 3; j++)
-			{
-				pts[j] = p[i * 3 + j].screen_coord;
-			}
-			Draw_wireframe(pts, applicationData.wfColor);
-		}
+		DrawPrimitive(p);
 	}
 	else if (mode == GPU)
 	{
@@ -114,7 +90,7 @@ void Pipeline::RasterizeStage(VertexOutput* p,RazerMode mode)
 			{
 				for (P.y = bboxmin.y; P.y <= bboxmax.y; P.y++)
 				{
-					factors = barycentric(refill_vec<2>(pts[0].screen_coord / pts[0].screen_coord[3]), refill_vec<2>(pts[1].screen_coord / pts[1].screen_coord[3]), refill_vec<2>(pts[2].screen_coord / pts[2].screen_coord[3]), refill_vec<2>(P));
+					factors = barycentric(resize_vec<2>(pts[0].screen_coord / pts[0].screen_coord[3]), resize_vec<2>(pts[1].screen_coord / pts[1].screen_coord[3]), resize_vec<2>(pts[2].screen_coord / pts[2].screen_coord[3]), resize_vec<2>(P));
 
 					float pz = (pts[0].screen_coord[2] / pts[0].screen_coord[3]) * factors.x + (pts[1].screen_coord[2] / pts[1].screen_coord[3]) * factors.y + (pts[2].screen_coord[2] / pts[2].screen_coord[3]) * factors.z;
 					int p_depth = std::max(0, std::min(255, int(pz + 0.5f)));
@@ -125,23 +101,23 @@ void Pipeline::RasterizeStage(VertexOutput* p,RazerMode mode)
 					Matrix m_normal;
 					vec<4, float>homo_col_normal;
 					for (int i = 0; i < 4; i++)homo_col_normal[i] = 0.0f;
-					m_normal.set_col(0, refill_vec<4>(pts[0].vertex_normal, 0.0f));
-					m_normal.set_col(1, refill_vec<4>(pts[1].vertex_normal, 0.0f));
-					m_normal.set_col(2, refill_vec<4>(pts[2].vertex_normal, 0.0f));
+					m_normal.set_col(0, resize_vec<4>(pts[0].vertex_normal, 0.0f));
+					m_normal.set_col(1, resize_vec<4>(pts[1].vertex_normal, 0.0f));
+					m_normal.set_col(2, resize_vec<4>(pts[2].vertex_normal, 0.0f));
 					m_normal.set_col(3, homo_col_normal);
 
 					Matrix m_uv;
 					vec<4, float>homo_col_uv;
 					for (int i = 0; i < 4; i++)homo_col_uv[i] = 0.0f;
-					m_uv.set_col(0, refill_vec<4>(pts[0].uvtexcrood, 0.0f));
-					m_uv.set_col(1, refill_vec<4>(pts[1].uvtexcrood, 0.0f));
-					m_uv.set_col(2, refill_vec<4>(pts[2].uvtexcrood, 0.0f));
+					m_uv.set_col(0, resize_vec<4>(pts[0].uvtexcrood, 0.0f));
+					m_uv.set_col(1, resize_vec<4>(pts[1].uvtexcrood, 0.0f));
+					m_uv.set_col(2, resize_vec<4>(pts[2].uvtexcrood, 0.0f));
 					m_uv.set_col(3, homo_col_uv);
 
 
 					VertexOutput vo;
-					vo.vertex_normal = normalize(refill_vec<3>(m_normal * refill_vec<4>(Vec3f(factors))));
-					vo.uvtexcrood = refill_vec<2>(m_uv * refill_vec<4>(Vec3f(factors)));
+					vo.vertex_normal = normalize(resize_vec<3>(m_normal * resize_vec<4>(Vec3f(factors))));
+					vo.uvtexcrood = resize_vec<2>(m_uv * resize_vec<4>(Vec3f(factors)));
 
 
 					TGAColor color = FragmentShader(vo);
@@ -201,6 +177,11 @@ TGAColor Pipeline::tex2D(TGAImage& image, Vec2f uvf)
 {
 	Vec2i uv(uvf[0] * image.get_width(), uvf[1] * image.get_height());//映射纹理值
 	return image.get(uv[0], uv[1]);
+}
+
+Vec3f Pipeline::GetFaceNormal(VertexOutput vo)
+{
+	return Vec3f();
 }
 
 //质心坐标
@@ -273,7 +254,7 @@ void Pipeline::Bresemham_drawline(Vec2i a, Vec2i b, TGAImage& image, TGAColor co
 
 void Pipeline::Draw_wireframe(Vec4f* pts,TGAColor color)
 {
-	Bresemham_drawline(refill_vec<2>(pts[0] / pts[0][3]), refill_vec<2>(pts[1] / pts[1][3]), *image, color);
-	Bresemham_drawline(refill_vec<2>(pts[1] / pts[1][3]), refill_vec<2>(pts[2] / pts[2][3]), *image, color);
-	Bresemham_drawline(refill_vec<2>(pts[2] / pts[2][3]), refill_vec<2>(pts[0] / pts[0][3]), *image, color);
+	Bresemham_drawline(resize_vec<2>(pts[0] / pts[0][3]), resize_vec<2>(pts[1] / pts[1][3]), *image, color);
+	Bresemham_drawline(resize_vec<2>(pts[1] / pts[1][3]), resize_vec<2>(pts[2] / pts[2][3]), *image, color);
+	Bresemham_drawline(resize_vec<2>(pts[2] / pts[2][3]), resize_vec<2>(pts[0] / pts[0][3]), *image, color);
 }
