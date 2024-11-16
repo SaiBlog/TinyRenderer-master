@@ -21,15 +21,6 @@
 #include "Pipeline.h"
 #pragma comment(lib,"winmm.lib")
 
-enum ShaderType
-{
-	Toon,
-	Phong,
-	Flat,
-	Gouraud,
-	Test
-};
-
 enum ModelType
 {
 	African,
@@ -163,6 +154,149 @@ struct ToonShader :public Pipeline
 	}
 };
 
+struct FlatShader:public Pipeline
+{
+	FlatShader(Model* model, TGAImage* image, TGAImage* zbuffer) :Pipeline(model, image, zbuffer) {}
+
+	virtual void VertexAssemblyStage(VertexInput*& p) override
+	{
+		v_numbers = 3 * model->nfaces();
+		vi_array = new VertexInput[v_numbers];
+		vo_array = new VertexOutput[v_numbers];
+		for (int i = 0; i < model->nfaces(); i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				p[i * 3 + j].vertex_idx = i * 3 + j;
+				p[i * 3 + j].vertex_model = resize_vec<4>(model->vert(i, j));
+				p[i * 3 + j].vertex_normal = model->normal(i, j);
+				p[i * 3 + j].vertex_uvtexcrood = model->uv(i, j);
+				p[i * 3 + j].vertex_specular = model->specular(p[i * 3 + j].vertex_uvtexcrood);
+			}
+		}
+	}
+
+	virtual VertexOutput VertexShader(VertexInput vi) override
+	{
+		VertexOutput vo;
+		vo.world_coord = vi.vertex_model;//我们没有世界矩阵
+		vo.view_coord = matrixData.modelView * vi.vertex_model;
+		vo.projection_coord = matrixData.projection * vo.view_coord;
+		vo.screen_coord = matrixData.viewPort * vo.projection_coord;
+		vo.vertex_normal = normalize(vi.vertex_normal);
+
+		return vo;
+	}
+
+	virtual TGAColor FragmentShader(VertexOutput vo) override
+	{
+		Vec3f normal = GetFaceNormal(vo);
+		float intensity = normal * applicationData.light_dir;
+		TGAColor color = TGAColor(applicationData.light.x, applicationData.light.y, applicationData.light.z) * intensity;
+		
+		return color;
+	}
+};
+
+struct GouraudShader :public Pipeline
+{
+	GouraudShader(Model* model, TGAImage* image, TGAImage* zbuffer) :Pipeline(model, image, zbuffer) {}
+
+	virtual void VertexAssemblyStage(VertexInput*& p) override
+	{
+		v_numbers = 3 * model->nfaces();
+		vi_array = new VertexInput[v_numbers];
+		vo_array = new VertexOutput[v_numbers];
+		for (int i = 0; i < model->nfaces(); i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				p[i * 3 + j].vertex_idx = i * 3 + j;
+				p[i * 3 + j].vertex_model = resize_vec<4>(model->vert(i, j));
+				p[i * 3 + j].vertex_normal = model->normal(i, j);
+				p[i * 3 + j].vertex_uvtexcrood = model->uv(i, j);
+				p[i * 3 + j].vertex_specular = model->specular(p[i * 3 + j].vertex_uvtexcrood);
+			}
+		}
+	}
+
+	virtual VertexOutput VertexShader(VertexInput vi)override
+	{
+		VertexOutput vo;
+		vo.world_coord = vi.vertex_model;//我们没有世界矩阵
+		vo.view_coord = matrixData.modelView * vi.vertex_model;
+		vo.projection_coord = matrixData.projection * vo.view_coord;
+		vo.screen_coord = matrixData.viewPort * vo.projection_coord;
+		vo.vertex_normal = normalize(vi.vertex_normal);
+
+		vo.uvtexcrood = vi.vertex_uvtexcrood;
+		return vo;
+	}
+
+	virtual TGAColor FragmentShader(VertexOutput vo)override
+	{
+		Vec2f uv = vo.uvtexcrood;
+		float intensity = vo.vertex_normal * applicationData.light_dir;
+		TGAColor color = tex2D(model->diffusemap_, uv) * intensity;
+		return color;
+	}
+
+};
+
+struct PhongShader :public Pipeline
+{
+	PhongShader(Model* model, TGAImage* image, TGAImage* zbuffer) :Pipeline(model, image, zbuffer) {}
+
+	virtual void VertexAssemblyStage(VertexInput*& p) override
+	{
+		v_numbers = 3 * model->nfaces();
+		vi_array = new VertexInput[v_numbers];
+		vo_array = new VertexOutput[v_numbers];
+		for (int i = 0; i < model->nfaces(); i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				p[i * 3 + j].vertex_idx = i * 3 + j;
+				p[i * 3 + j].vertex_model = resize_vec<4>(model->vert(i, j));
+				p[i * 3 + j].vertex_normal = model->normal(i, j);
+				p[i * 3 + j].vertex_uvtexcrood = model->uv(i, j);
+				p[i * 3 + j].vertex_specular = model->specular(p[i * 3 + j].vertex_uvtexcrood);
+			}
+		}
+	}
+
+	virtual VertexOutput VertexShader(VertexInput vi) override
+	{
+		VertexOutput vo;
+		vo.world_coord = vi.vertex_model;//我们没有世界矩阵
+		vo.view_coord = matrixData.modelView * vi.vertex_model;
+		vo.projection_coord = matrixData.projection * vo.view_coord;
+		vo.screen_coord = matrixData.viewPort * vo.projection_coord;
+		vo.vertex_normal = normalize(vi.vertex_normal);
+
+		vo.uvtexcrood = vi.vertex_uvtexcrood;
+		vo.vertex_specular = vi.vertex_specular;
+		return vo;
+	}
+
+	virtual TGAColor FragmentShader(VertexOutput vo) override
+	{
+		Matrix matrix_MIT = matrixData.modelView.invert_transpose();
+		Matrix matrix_M = matrixData.projection * matrixData.modelView;
+		Vec3f n = normalize(resize_vec<3>(matrix_MIT * resize_vec<4>(model->normal(vo.uvtexcrood))));
+		Vec3f l = normalize(resize_vec<3>(matrix_M * resize_vec<4>(applicationData.light_dir)));
+		Vec3f r = normalize(n * (n * l * 2.0f) - l);
+
+		float spec = pow(max(r.z, 0.0f), model->specular(vo.uvtexcrood));
+		float diff = max(0.f, n * l);
+
+		TGAColor c = tex2D(model->diffusemap_, vo.uvtexcrood);
+		TGAColor color;
+		for (int i = 0; i < 3; i++) color[i] = std::min<float>(5.0f + c[i] * (diff + 0.6f * spec), 255.0f);
+
+		return color;
+	}
+};
 
 int main(int argc, char** argv)
 {
@@ -190,13 +324,20 @@ int main(int argc, char** argv)
 	}
 
 
-	WireframeShader* wf = new WireframeShader(Model_head, &image, &zbuffer);
+	WireframeShader* wfShader = new WireframeShader(Model_head, &image, &zbuffer);
 	ToonShader* toonShader = new ToonShader(Model_head, &image, &zbuffer);
+	FlatShader* flatShader = new FlatShader(Model_head, &image, &zbuffer);
+	GouraudShader* gouraudShader = new GouraudShader(Model_head, &image, &zbuffer);
+	PhongShader* phongShader = new PhongShader(Model_head, &image, &zbuffer);
 
 
-	wf->run(WIREFRAME);
+
+	//wfShader->run(WIREFRAME);
 	//toonShader->run(GPU);
-
+	//flatShader->run(GPU);
+	//gouraudShader->run(GPU);
+	phongShader->run(GPU);
+	
 
 	image.flip_vertically();
 	zbuffer.flip_vertically();
@@ -212,6 +353,10 @@ int main(int argc, char** argv)
 	delete Model_body;
 
 	delete toonShader;
+	delete wfShader;
+	delete flatShader;
+	delete gouraudShader;
+	delete phongShader;
 
 	return 0;
 }

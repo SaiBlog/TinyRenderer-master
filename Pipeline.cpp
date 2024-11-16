@@ -116,6 +116,7 @@ void Pipeline::RasterizeStage(VertexOutput* p,RazerMode mode)
 
 
 					VertexOutput vo;
+					vo.vertex_idx = ivert1;
 					vo.vertex_normal = normalize(resize_vec<3>(m_normal * resize_vec<4>(Vec3f(factors))));
 					vo.uvtexcrood = resize_vec<2>(m_uv * resize_vec<4>(Vec3f(factors)));
 
@@ -133,7 +134,10 @@ void Pipeline::RasterizeStage(VertexOutput* p,RazerMode mode)
 	}
 	else if (mode == CPU)
 	{
+		for (int iface = 0; iface < model->nfaces(); iface++)
+		{
 
+		}
 	}
 }
 
@@ -181,7 +185,13 @@ TGAColor Pipeline::tex2D(TGAImage& image, Vec2f uvf)
 
 Vec3f Pipeline::GetFaceNormal(VertexOutput vo)
 {
-	return Vec3f();
+	size_t idx_a = vo.vertex_idx - vo.vertex_idx % 3;
+	size_t idx_b = idx_a + 1;
+	size_t idx_c = idx_a + 2;
+	Vec3f normal = normalize(cross(resize_vec<3>(vo_array[idx_b].world_coord / vo_array[idx_b].world_coord[3] - vo_array[idx_a].world_coord / vo_array[idx_a].world_coord[3]),
+		resize_vec<3>(vo_array[idx_c].world_coord / vo_array[idx_c].world_coord[3] - vo_array[idx_a].world_coord / vo_array[idx_a].world_coord[3])));
+
+	return normal;
 }
 
 //ÖÊÐÄ×ø±ê

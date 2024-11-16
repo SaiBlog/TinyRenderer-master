@@ -140,7 +140,6 @@ struct Pipeline
 	Vec3f factors;//edge_qualtion
 };
 
-
 Vec3f barycentric(Vec2f a, Vec2f b, Vec2f c, Vec2f p);
 
 void InitBackground(TGAImage& image,const TGAColor& bgColor);
