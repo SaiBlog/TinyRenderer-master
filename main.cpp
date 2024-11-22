@@ -184,7 +184,6 @@ struct FlatShader:public Pipeline
 		vo.projection_coord = matrixData.projection * vo.view_coord;
 		vo.screen_coord = matrixData.viewPort * vo.projection_coord;
 		vo.vertex_normal = normalize(vi.vertex_normal);
-
 		return vo;
 	}
 
@@ -331,12 +330,11 @@ int main(int argc, char** argv)
 	PhongShader* phongShader = new PhongShader(Model_head, &image, &zbuffer);
 
 
-
 	//wfShader->run(WIREFRAME);
-	//toonShader->run(GPU);
-	//flatShader->run(GPU);
-	//gouraudShader->run(GPU);
-	phongShader->run(GPU);
+	toonShader->run(GPU);
+	//flatShader->run(CPU);
+	//gouraudShader->run(CPU);
+	//phongShader->run(GPU);
 	
 
 	image.flip_vertically();
@@ -345,7 +343,7 @@ int main(int argc, char** argv)
 	zbuffer.write_tga_file("zbuffer.tga");
 
 
-	//PlaySound(L"media\\汪峰-光明.wav", NULL, SND_FILENAME | SND_ASYNC | SND_LOOP);
+	PlaySound(L"media\\汪峰-光明.wav", NULL, SND_FILENAME | SND_ASYNC | SND_LOOP);
 	system("output.tga");
 
 	delete Model_head;

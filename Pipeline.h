@@ -75,6 +75,7 @@ struct VertexOutput
 	Vec4f view_coord;
 	Vec4f projection_coord;
 	Vec4f screen_coord;
+	Vec3i iscreen_coord;
 
 	Vec3f vertex_normal;
 	Vec3f face_normal;
@@ -102,7 +103,6 @@ struct Pipeline
 
 	//执行渲染管线
 	void run(RazerMode mode);
-
 
 	//应用程序阶段
 	void InitApplicationStage();

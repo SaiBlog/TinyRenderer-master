@@ -208,12 +208,12 @@ inline vec<3, T> cross(const vec<3, T> a, const vec<3, T> b)
 template<size_t N, typename T>
 T operator*(const vec<N, T>& lhs, const vec<N, T>& rhs) {
 	T ret = T();
-	for (size_t i = N; i--; ret += lhs[i] * rhs[i]);
+	for (size_t i = 0; i < N; i++) ret += lhs[i] * rhs[i];
 	return ret;
 }
 template<size_t N, typename T, typename U>
 vec<N, T> operator*(vec<N, T> lhs, const U& rhs) {
-	for (size_t i = N; i--; lhs[i] *= rhs);
+	for (size_t i = 0; i < N; i++)lhs[i] *= rhs;
 	return lhs;
 }
 
@@ -268,7 +268,7 @@ inline vec<N, T> operator / (const vec<N, T>& a, T x)
 }
 template<size_t N, typename T, typename U>
 vec<N, T> operator/(vec<N, T> lhs, const U& rhs) {
-	for (size_t i = N; i--; lhs[i] /= rhs);
+	for (size_t i = 0; i<N; i++)lhs[i] /= rhs;
 	return lhs;
 }
 
@@ -459,7 +459,7 @@ public:
 	mat<Cols, Rows, T> transpose() 
 	{
 		mat<Cols, Rows, T> ret;
-		for (size_t i = Cols; i--; ret[i] = this->get_col(i));
+		for (size_t i = 0; i<Cols; i++)ret[i] = this->get_col(i);
 		return ret;
 	}
 
@@ -496,7 +496,7 @@ mat<R1, C2, T> operator*(const mat<R1, C1, T>& lhs, const mat<C1, C2, T>& rhs)
 template<size_t Rows, size_t Cols, typename T>
 mat<Cols, Rows, T> operator/(mat<Rows, Cols, T> lhs, const T& rhs)
 {
-	for (size_t i = Rows; i--; lhs[i] = lhs[i] / rhs);
+	for (size_t i = 0; i<Rows; i++)lhs[i] = lhs[i] / rhs;
 	return lhs;
 }
 

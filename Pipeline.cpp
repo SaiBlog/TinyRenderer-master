@@ -56,14 +56,15 @@ void Pipeline::VertexShaderStage(VertexInput* p,VertexOutput*& po)
 	}
 }
 
+
 void Pipeline::RasterizeStage(VertexOutput* p,RazerMode mode)
 {
-	if(mode==WIREFRAME)
+	if(mode == WIREFRAME)
 	{
 		DrawPrimitive(p);
 	}
-	else if (mode == GPU)
-	{
+	else
+	{	
 		for (int iface = 0; iface < model->nfaces(); iface++)
 		{
 			VertexOutput pts[3];
@@ -73,70 +74,125 @@ void Pipeline::RasterizeStage(VertexOutput* p,RazerMode mode)
 			pts[0] = p[ivert1];
 			pts[1] = p[ivert2];
 			pts[2] = p[ivert3];
-			Vec2f bboxmin(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
-			Vec2f bboxmax(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
-
-			for (int i = 0; i < 3; i++)
+			if (mode == GPU)
 			{
-				for (int j = 0; j < 2; j++)
+				Vec2f bboxmin(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
+				Vec2f bboxmax(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
+
+				for (int i = 0; i < 3; i++)
 				{
-					bboxmin[j] = std::min(bboxmin[j], pts[i].screen_coord[j] / pts[i].screen_coord[3]);
-					bboxmax[j] = std::max(bboxmax[j], pts[i].screen_coord[j] / pts[i].screen_coord[3]);
+					for (int j = 0; j < 2; j++)
+					{
+						bboxmin[j] = std::min(bboxmin[j], pts[i].screen_coord[j] / pts[i].screen_coord[3]);
+						bboxmax[j] = std::max(bboxmax[j], pts[i].screen_coord[j] / pts[i].screen_coord[3]);
+					}
+				}
+				Vec2i P;
+				for (P.x = bboxmin.x; P.x <= bboxmax.x; P.x++)
+				{
+					for (P.y = bboxmin.y; P.y <= bboxmax.y; P.y++)
+					{
+						factors = barycentric(resize_vec<2>(pts[0].screen_coord / pts[0].screen_coord[3]), resize_vec<2>(pts[1].screen_coord / pts[1].screen_coord[3]), resize_vec<2>(pts[2].screen_coord / pts[2].screen_coord[3]), resize_vec<2>(P));
+
+						float pz = (pts[0].screen_coord[2] / pts[0].screen_coord[3]) * factors.x + (pts[1].screen_coord[2] / pts[1].screen_coord[3]) * factors.y + (pts[2].screen_coord[2] / pts[2].screen_coord[3]) * factors.z;
+						int p_depth = std::max(0, std::min(255, int(pz + 0.5f)));
+
+						//不处理退化三角形的像素或者深度值比当前值高的像素,以及不在三角形中的像素
+						if (factors.x < 0 || factors.y < 0 || factors.z<0 || zbuffer->get(P.x, P.y)[0]>p_depth)continue;
+
+						Matrix m_normal;
+						vec<4, float>homo_col_normal;
+						for (int i = 0; i < 4; i++)homo_col_normal[i] = 0.0f;
+						m_normal.set_col(0, resize_vec<4>(pts[0].vertex_normal, 0.0f));
+						m_normal.set_col(1, resize_vec<4>(pts[1].vertex_normal, 0.0f));
+						m_normal.set_col(2, resize_vec<4>(pts[2].vertex_normal, 0.0f));
+						m_normal.set_col(3, homo_col_normal);
+						Matrix m_uv;
+						vec<4, float>homo_col_uv;
+						for (int i = 0; i < 4; i++)homo_col_uv[i] = 0.0f;
+						m_uv.set_col(0, resize_vec<4>(pts[0].uvtexcrood, 0.0f));
+						m_uv.set_col(1, resize_vec<4>(pts[1].uvtexcrood, 0.0f));
+						m_uv.set_col(2, resize_vec<4>(pts[2].uvtexcrood, 0.0f));
+						m_uv.set_col(3, homo_col_uv);
+
+
+						VertexOutput vo;
+						vo.vertex_idx = ivert1;
+						vo.vertex_normal = normalize(resize_vec<3>(m_normal * resize_vec<4>(Vec3f(factors))));
+						vo.uvtexcrood = resize_vec<2>(m_uv * resize_vec<4>(Vec3f(factors)));
+
+						TGAColor color = FragmentShader(vo);
+
+						//深度值的灰度图
+						zbuffer->set(P.x, P.y, TGAColor(p_depth));
+						//最终的效果
+						image->set(P.x, P.y, color);
+
+					}
 				}
 			}
-
-			Vec2i P;
-			for (P.x = bboxmin.x; P.x <= bboxmax.x; P.x++)
+			if (mode == CPU)
 			{
-				for (P.y = bboxmin.y; P.y <= bboxmax.y; P.y++)
+				for (int i = 0; i < 3; i++)
 				{
-					factors = barycentric(resize_vec<2>(pts[0].screen_coord / pts[0].screen_coord[3]), resize_vec<2>(pts[1].screen_coord / pts[1].screen_coord[3]), resize_vec<2>(pts[2].screen_coord / pts[2].screen_coord[3]), resize_vec<2>(P));
+					pts[i].screen_coord = pts[i].screen_coord / pts[i].screen_coord[3];
+					for (int j = 0; j < 3; j++)
+					{
+						pts[i].iscreen_coord[j] = (int)(pts[i].screen_coord[j] + 0.5f);
+					}
+				}
 
-					float pz = (pts[0].screen_coord[2] / pts[0].screen_coord[3]) * factors.x + (pts[1].screen_coord[2] / pts[1].screen_coord[3]) * factors.y + (pts[2].screen_coord[2] / pts[2].screen_coord[3]) * factors.z;
-					int p_depth = std::max(0, std::min(255, int(pz + 0.5f)));
+				if (pts[0].iscreen_coord[1] > pts[1].iscreen_coord[1]) { std::swap(pts[0], pts[1]); }
+				if (pts[0].iscreen_coord[1] > pts[2].iscreen_coord[1]) { std::swap(pts[0], pts[2]); }
+				if (pts[1].iscreen_coord[1] > pts[2].iscreen_coord[1]) { std::swap(pts[2], pts[1]); }
 
-					//不处理退化三角形的像素或者深度值比当前值高的像素,以及不在三角形中的像素
-					if (factors.x < 0 || factors.y < 0 || factors.z<0 || zbuffer->get(P.x, P.y)[0]>p_depth)continue;
+				int total_height = pts[2].iscreen_coord[1] - pts[0].iscreen_coord[1];
+				for (int i = 0; i < total_height; i++)
+				{
+					bool second_half = i > pts[1].iscreen_coord[1] - pts[0].iscreen_coord[1] || pts[1].iscreen_coord[1] == pts[0].iscreen_coord[1];
+					int segment_height = second_half ? pts[2].iscreen_coord[1] - pts[1].iscreen_coord[1] : pts[1].iscreen_coord[1] - pts[0].iscreen_coord[1];
+					if (segment_height == 0)continue;
+					float alpha = (float)i / total_height;
+					float beta = (float)(i - (second_half ? pts[1].iscreen_coord[1] - pts[0].iscreen_coord[1] : 0)) / segment_height;
 
-					Matrix m_normal;
-					vec<4, float>homo_col_normal;
-					for (int i = 0; i < 4; i++)homo_col_normal[i] = 0.0f;
-					m_normal.set_col(0, resize_vec<4>(pts[0].vertex_normal, 0.0f));
-					m_normal.set_col(1, resize_vec<4>(pts[1].vertex_normal, 0.0f));
-					m_normal.set_col(2, resize_vec<4>(pts[2].vertex_normal, 0.0f));
-					m_normal.set_col(3, homo_col_normal);
+					VertexOutput A, B;
+					A.iscreen_coord = Vec3f(pts[0].iscreen_coord) + Vec3f(pts[2].iscreen_coord - pts[0].iscreen_coord) * alpha;
+					B.iscreen_coord = second_half ? Vec3f(pts[1].iscreen_coord) + Vec3f(pts[2].iscreen_coord - pts[1].iscreen_coord) * beta :
+						Vec3f(pts[0].iscreen_coord) + Vec3f(pts[1].iscreen_coord - pts[0].iscreen_coord) * beta;
 
-					Matrix m_uv;
-					vec<4, float>homo_col_uv;
-					for (int i = 0; i < 4; i++)homo_col_uv[i] = 0.0f;
-					m_uv.set_col(0, resize_vec<4>(pts[0].uvtexcrood, 0.0f));
-					m_uv.set_col(1, resize_vec<4>(pts[1].uvtexcrood, 0.0f));
-					m_uv.set_col(2, resize_vec<4>(pts[2].uvtexcrood, 0.0f));
-					m_uv.set_col(3, homo_col_uv);
+					A.uvtexcrood = pts[0].uvtexcrood + (pts[2].uvtexcrood - pts[0].uvtexcrood) * alpha;
+					B.uvtexcrood = second_half ? pts[1].uvtexcrood + (pts[2].uvtexcrood - pts[1].uvtexcrood) * beta : pts[0].uvtexcrood + (pts[1].uvtexcrood - pts[0].uvtexcrood) * alpha;
 
+					A.vertex_normal = pts[0].vertex_normal + (pts[2].vertex_normal - pts[0].vertex_normal) * alpha;
+					B.vertex_normal = second_half ? pts[1].vertex_normal + (pts[2].vertex_normal - pts[1].vertex_normal) * beta : pts[0].vertex_normal + (pts[1].vertex_normal - pts[0].vertex_normal) * alpha;
 
-					VertexOutput vo;
-					vo.vertex_idx = ivert1;
-					vo.vertex_normal = normalize(resize_vec<3>(m_normal * resize_vec<4>(Vec3f(factors))));
-					vo.uvtexcrood = resize_vec<2>(m_uv * resize_vec<4>(Vec3f(factors)));
+					if (A.iscreen_coord[0] > B.iscreen_coord[0])std::swap(A, B);
 
+					for (int j = A.iscreen_coord[0]; j <= B.iscreen_coord[0]; j++)
+					{
+						float phi = B.iscreen_coord[0] == A.iscreen_coord[0] ? 1.0f : (float)(j - A.iscreen_coord[0]) / (B.iscreen_coord[0] - A.iscreen_coord[0]);
 
-					TGAColor color = FragmentShader(vo);
+						VertexOutput vo;
+						vo.vertex_idx = ivert1;
+						for (int k = 0; k < 3; k++)
+						{
+							float f = float(B.iscreen_coord[k] - A.iscreen_coord[k]) * phi;
+							vo.iscreen_coord[k] = (int)(float(A.iscreen_coord[k]) + f + 0.5f);
+						}
+						vo.vertex_normal = A.vertex_normal + (B.vertex_normal - A.vertex_normal) * phi;
+						vo.uvtexcrood = A.uvtexcrood + (B.uvtexcrood - A.uvtexcrood) * phi;
 
-					//深度值的灰度图
-					zbuffer->set(P.x, P.y, TGAColor(p_depth));
-					//最终的效果
-					image->set(P.x, P.y, color);
+						if (vo.iscreen_coord[0] < 0 || vo.iscreen_coord[0] >= width || vo.iscreen_coord[1] < 0 || vo.iscreen_coord[1] >= height)continue;
+						if (zbuffer->get(vo.iscreen_coord[0], vo.iscreen_coord[1])[0] < vo.iscreen_coord[2])
+						{
+							TGAColor color = FragmentShader(vo);
+							zbuffer->set(vo.iscreen_coord[0], vo.iscreen_coord[1], TGAColor(vo.iscreen_coord[2]));
+							image->set(vo.iscreen_coord[0], vo.iscreen_coord[1], color);
+						}
 
+					}
 				}
 			}
-		}	
-	}
-	else if (mode == CPU)
-	{
-		for (int iface = 0; iface < model->nfaces(); iface++)
-		{
-
 		}
 	}
 }
